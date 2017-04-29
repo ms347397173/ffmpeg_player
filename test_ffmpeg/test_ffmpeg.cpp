@@ -19,15 +19,28 @@ extern "C"
 	#include<SDL.h>
 }
 
+int thread_exit = 0;
 int sfp_refresh_thread(void *opaque)
 {
+	thread_exit = 0;
+	SDL_Event event;
+
+	while (!thread_exit)
+	{
+		event.type = SFM_REFRESH_EVENT;
+		SDL_PushEvent(&event);
+		SDL_Delay(40); //40ms
+	}
+	thread_exit= 0;
+	event.type = SFM_BREAK_EVENT;
+	SDL_PushEvent(&event);
 	return 0;
 }
 
-int main()
+int main(int argc, char* argv[])
 {
 	//printf("%s\n", avcodec_configuration());
-	char * filepath = ".\\test_vedio\\test3_800_600.mp4";
+	char * filepath = ".\\test_vedio\\屌丝男士.mov";
 	AVFormatContext *pFormatCtx=NULL;
 	int i = 0, videoIndex=0;
 	AVCodecContext * pCodecCtx;
@@ -49,7 +62,7 @@ int main()
 	SDL_Event event;
 
 	FILE * fpYUV;
-	int frameCount;
+	int frameCount=0;
 
 	//avcodec_register_all();
 	av_register_all();
@@ -77,7 +90,7 @@ int main()
 			break;
 		}
 	}
-	if (videoIndex)
+	if (videoIndex==-1)
 	{
 		printf("Didn't find a vedio stream \n");
 		return -1;
@@ -154,51 +167,107 @@ int main()
 
 	video_tid = SDL_CreateThread(sfp_refresh_thread, NULL, NULL);
 
-	
-
-	//读取帧
-	frameCount = 0;
-	char filename[16] = {};
-
-	FILE * fp = fopen("test.yuv", "wb");
-
-	while (av_read_frame(pFormatCtx, pPacket) >= 0)
+	for(;;)
 	{
-		
-		if (pPacket->stream_index == videoIndex)
+		SDL_WaitEvent(&event);
+		if (event.type == SFM_REFRESH_EVENT)  //如果是REFRESH事件
 		{
-			/*sprintf(filename, "yuv\\%d.yuv", frameCount);
-			FILE * fp = fopen(filename, "wb+");*/
-			
-			ret = avcodec_decode_video2(pCodecCtx, pFrame, &gotPicture, pPacket);
-			if (ret < 0) {
-				printf("Decode Error.\n");
-				return -1;
-			}
-			if (gotPicture)
+			if (av_read_frame(pFormatCtx, pPacket) >= 0)
 			{
-				sws_scale(pimgConvertCtx, (const uint8_t * const *)pFrame->data, pFrame->linesize, 0, pCodecCtx->height, pFrameYUV->data, pFrameYUV->linesize);
-				printf("Decoded frame index: %d\n", frameCount);
+				if (pPacket->stream_index == videoIndex)
+				{
+					/*sprintf(filename, "yuv\\%d.yuv", frameCount);
+					FILE * fp = fopen(filename, "wb+");*/
 
-				//输出YUV数据 来自pFrameYUV
-				int height = pCodecCtx -> height;
-				fwrite(pFrameYUV->data[0], pFrameYUV->linesize[0]/* pCodecCtx->width*/, height ,fp);
-				fwrite(pFrameYUV->data[1], pFrameYUV->linesize[1]>>1/* pCodecCtx->width * 5 >> 2*/, height,fp);
-				fwrite(pFrameYUV->data[2], pFrameYUV->linesize[2]>>1  /* pCodecCtx->width * 5 >> 2*/, height,fp);
+					ret = avcodec_decode_video2(pCodecCtx, pFrame, &gotPicture, pPacket);
+					if (ret < 0)
+					{
+						printf("Decode Error.\n");
+						return -1;
+					}
+					if (gotPicture)
+					{
+						sws_scale(pimgConvertCtx, (const uint8_t * const *)pFrame->data, pFrame->linesize, 0, pCodecCtx->height, pFrameYUV->data, pFrameYUV->linesize);
+						printf("Decoded frame index: %d\n", frameCount);
 
-				frameCount++;
+						//输出YUV数据 来自pFrameYUV
+						SDL_UpdateTexture(sdlTexture, NULL, pFrameYUV->data[0], pFrameYUV->linesize[0]); //更新纹理
+						SDL_RenderClear(sdlRenderer);  //清空渲染器
+						SDL_RenderCopy(sdlRenderer, sdlTexture, NULL, NULL);
+						SDL_RenderPresent(sdlRenderer);
+
+
+						frameCount++;
+					}
+
+
+					//fclose(fp);
+				}
+				av_free_packet(pPacket);  //每次调用read前调用该函数
 			}
-
-
-			//fclose(fp);
+			else
+			{
+				thread_exit = 1;
+			}
 		}
-		av_free_packet(pPacket);  //每次调用read前调用该函数
+		else if(event.type==SDL_QUIT)//不是refresh事件
+		{
+			thread_exit = 1;
+		}
+		else if (event.type == SFM_BREAK_EVENT)
+		{
+			break;
+		}
+		else
+		{}
+
 
 	}
-	fclose(fp);
+
+	////读取帧
+	//frameCount = 0;
+	//FILE * fp = fopen("test.yuv", "wb");
+
+	//while (av_read_frame(pFormatCtx, pPacket) >= 0)
+	//{
+	//	
+	//	if (pPacket->stream_index == videoIndex)
+	//	{
+	//		/*sprintf(filename, "yuv\\%d.yuv", frameCount);
+	//		FILE * fp = fopen(filename, "wb+");*/
+	//		
+	//		ret = avcodec_decode_video2(pCodecCtx, pFrame, &gotPicture, pPacket);
+	//		if (ret < 0) {
+	//			printf("Decode Error.\n");
+	//			return -1;
+	//		}
+	//		if (gotPicture)
+	//		{
+	//			sws_scale(pimgConvertCtx, (const uint8_t * const *)pFrame->data, pFrame->linesize, 0, pCodecCtx->height, pFrameYUV->data, pFrameYUV->linesize);
+	//			printf("Decoded frame index: %d\n", frameCount);
+
+	//			//输出YUV数据 来自pFrameYUV
+	//			int height = pCodecCtx -> height;
+	//			fwrite(pFrameYUV->data[0], pFrameYUV->linesize[0]/* pCodecCtx->width*/, height ,fp);
+	//			fwrite(pFrameYUV->data[1], pFrameYUV->linesize[1]>>1/* pCodecCtx->width * 5 >> 2*/, height,fp);
+	//			fwrite(pFrameYUV->data[2], pFrameYUV->linesize[2]>>1  /* pCodecCtx->width * 5 >> 2*/, height,fp);
+
+	//			frameCount++;
+	//		}
+
+
+	//		//fclose(fp);
+	//	}
+	//	av_free_packet(pPacket);  //每次调用read前调用该函数
+
+	//}
+	//fclose(fp);
 
 
 	sws_freeContext(pimgConvertCtx);
+
+	SDL_Quit();
+
 	av_frame_free(&pFrame);
 	av_frame_free(&pFrameYUV);
 	avcodec_close(pCodecCtx);
